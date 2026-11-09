@@ -30,6 +30,25 @@ def action_display_analysis(analysis):
     print(f"========== Analysis:  ==========\n{analysis}", "\n\n")
     return "Analysis Received. Just do it!"
 
+def truncate_repr(value, limit: int = 300) -> str:
+    """
+    Return repr(value), cut to at most `limit` characters so that large objects
+    (datasets, long lists, big strings) do not flood the environment summary
+    that is sent to the LLM on every evolve step.
+    """
+    try:
+        text = repr(value)
+    except Exception as e:
+        text = f"<unrepresentable {type(value).__name__}: {e}>"
+    if len(text) > limit:
+        size = ""
+        try:
+            size = f", len={len(value)}"
+        except Exception:
+            pass
+        text = f"{text[:limit]}... <truncated: {type(value).__name__}{size}, {len(text)} chars total>"
+    return text
+
 def action_environment_aware(agent: AgentBase):
     """
     Reflect and summarize available resources of the current runtime environment including variables, functions, modules, and external libraries.
@@ -48,7 +67,7 @@ def action_environment_aware(agent: AgentBase):
                 elif name in ['logic']:
                     pass
                 else:
-                    summary.append(f"- {name} = {value}")
+                    summary.append(f"- {name} = {truncate_repr(value)}")
         if len(summary) == 1:
             summary.append("- None")
         return summary
@@ -571,7 +590,11 @@ class Agent(AgentBase):
                 result = "Error " + exception_stringio.getvalue()
                 exception_stringio.close()
 
-            print(f"========== Tool Call Result:  ==========\n{result if len(result) < 100 else result[:100] + '...'}", sep="", end="\n\n")
+            if result.startswith("Error "):
+                # Always log full tracebacks so failures are diagnosable from the log.
+                print(f"========== Tool Call Result:  ==========\n{result}", sep="", end="\n\n")
+            else:
+                print(f"========== Tool Call Result:  ==========\n{result if len(result) < 100 else result[:100] + '...'}", sep="", end="\n\n")
             if is_reinit:
                 break
             agent.optimize_history.append({"role": "tool", 
